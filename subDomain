@@ -1,0 +1,1647 @@
+function [ARFx,ARFz,p2E,nucleus
+_
+ARFx,nucleus
+_
+ARFz] =
+computeAcousticForces
+_
+subDomain
+_
+copy(source
+_
+freq,kgrid,medium,planeOfAnalysis
+,sensor
+_
+data,dataShape,kgrid
+_
+sub)
+%%
+% Function that computes the acoustic fields, and associated forces, based
+% on the acoustic fields resulting from a k-Wave simulation. The function
+% assumes a 2D problem/analysis for the forces, but the underlying k-Wave
+% simulation can be 3D.
+% Things to add:
+% - Plot the forces as arrows on top of pressure
+% - Normalization/color range of plots, based on the max values in ROI
+% - Add computation of the ARF via Gor'kov as another function or inhere!
+avgTimePointWindow = ceil((1/source
+_
+freq)/kgrid.dt);
+rho0 = medium.density
+_
+arf;
+c0 = medium.sound
+_
+speed
+_
+arf;
+%% Plotting one of the time-averaged fields
+% % Prepare the new file.
+% vidObj = VideoWriter('250kHz
+_
+250kHz
+_
+120us'
+,
+'MPEG-4');
+% vidObj.FrameRate = 30;
+% % open(vidObj);
+% figure
+% loops = kgrid.Nt;
+% % M(loops) = struct('cdata'
+,[],
+'colormap'
+,[]);
+% for i=1:loops
+% imagesc(1e3 * kgrid.z
+_
+vec, 1e3 * kgrid.x
+_
+vec, pp
+_
+all
+_
+avg(:,:,i)); % in
+the data for image/imagesc, the data is structured as col-row! That's why the
+axes are inverted, while the data is x-z!
+% xlabel('z-position [mm]');
+% ylabel('x-position [mm]');
+% axis image;
+% title('Absolute pressure Field');
+% cb = colorbar;
+% % clim([0 3])
+% title(cb,
+'[MPa]');
+% hold on
+% xline(0,
+'
+-k')
+% drawnow
+% % M(i) = getframe;
+% % currFrame = getframe(gcf);
+% % writeVideo(vidObj,currFrame);
+% end
+% % Close the file.
+% % close(vidObj);
+switch planeOfAnalysis
+case "xy"
+Nx = kgrid
+_
+sub.Nx;
+Nz = kgrid
+_
+sub.Ny;
+dx = kgrid.dx;
+dz = kgrid.dy;
+x
+_
+vec = kgrid
+_
+sub.x
+_
+vec;
+z
+_
+vec = kgrid
+_
+sub.y
+_
+vec;
+sensor
+_
+data.uz
+_
+non
+_
+staggered = sensor
+_
+data.uy
+_
+non
+_
+staggered;
+case "xz"
+Nx = kgrid
+_
+sub.Nx;
+Nz = kgrid
+_
+sub.Nz;
+dx = kgrid.dx;
+dz = kgrid.dz;
+x
+_
+vec = kgrid
+_
+sub.x
+_
+vec;
+z
+_
+vec = kgrid
+_
+sub.z
+_
+vec;
+case "yz"
+Nx = kgrid
+_
+sub.Ny;
+Nz = kgrid
+_
+sub.Nz;
+dx = kgrid.dy;
+dz = kgrid.dz;
+x
+_
+vec = kgrid
+_
+sub.y
+_
+vec;
+z
+_
+vec = kgrid
+_
+sub.z
+_
+vec;
+sensor
+_
+data.ux
+_
+non
+_
+staggered = sensor
+_
+data.uy
+_
+non
+_
+staggered;
+otherwise
+error('Unknown planeOfAnalyis!')
+end
+% Nz = Ny;
+% sensor
+_
+data.uz
+_
+non
+_
+staggered = sensor
+_
+data.uy
+_
+non
+_
+staggered;
+p
+_
+all = [];
+pp
+_
+all = [];
+ux
+_
+all = [];
+% uy
+_
+all = [];
+uz
+_
+all = [];
+uxux
+_
+all = [];
+% uyuy
+_
+all = [];
+uzuz
+_
+all = [];
+uxx
+_
+all = [];
+uxz
+_
+all = [];
+% uyx
+_
+all = [];
+% uyz
+_
+all = [];
+uzx
+_
+all = [];
+uzz
+_
+all = [];
+% Extracting variables for a time-averaging window before the end of the
+% simulation
+j = 0;
+% for i=kgrid.Nt-2*avgTimePointWindow+1:kgrid.Nt
+for i=kgrid.Nt-avgTimePointWindow+1:kgrid.Nt
+j = j+1;
+switch dataShape
+case "final"
+p
+_
+current = sensor
+_
+data.p(:,:,i);
+ux
+_
+current = sensor
+_
+data.ux
+_
+non
+_
+staggered(:,:,i);
+% uy
+_
+current = sensor
+_
+data.uy
+_
+non
+_
+staggered(:,:,i);
+uz
+_
+current = sensor
+_
+data.uz
+_
+non
+_
+staggered(:,:,i);
+case "needReshape"
+p
+_
+current = reshape(sensor
+_
+data.p(:,i), Nx, Nz);
+ux
+_
+current = reshape(sensor
+_
+data.ux
+_
+non
+_
+staggered(:,i), Nx, Nz);
+uz
+_
+current = reshape(sensor
+_
+data.uz
+_
+non
+_
+staggered(:,i), Nx, Nz);
+otherwise
+error('Unknown dataShape!')
+end
+p
+_
+all(:,:,j) = p
+_
+current;
+pp
+_
+all(:,:,j) = p
+_
+current.
+*p
+_
+current;
+ux
+_
+all(:,:,j) = ux
+_
+current;
+% uy
+_
+all(:,:,j) = uy
+_
+current;
+uz
+_
+all(:,:,j) = uz
+_
+current;
+uxux
+_
+all(:,:,j) = ux
+_
+current.
+*ux
+_
+current;
+% uyuy
+_
+all(:,:,j) = uy
+_
+current.
+*uy
+_
+current;
+uzuz
+_
+all(:,:,j) = uz
+_
+current.
+*uz
+_
+current;
+[uxz
+_
+all(:,:,j),uxx
+_
+all(:,:,j)] = gradient(ux
+_
+current,dz,dx);
+% [uyz
+_
+all(:,:,j),uyx
+_
+all(:,:,j)] = gradient(uy
+_
+current,dx,dx);
+[uzz
+_
+all(:,:,j),uzx
+_
+all(:,:,j)] = gradient(uz
+_
+current,dz,dx);
+end
+% Time averaging - general
+% NtAVG = j;%2*avgTimePointWindow;
+NtAVG = 1;
+pp
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+ux
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+% uy
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uxux
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+% uyuy
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uzuz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uxx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uxz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+% uyx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+% uyz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uzx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uzz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+ux
+_
+uxx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+ux
+_
+uzz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uz
+_
+uxz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uz
+_
+uzz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uz
+_
+uxx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+ux
+_
+uzx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+for i=1:Nx
+for j=1:Nz
+% pp
+_
+all
+_
+avg(i,j,:) = movmean(pp
+_
+all(i,j,:),avgTimePointWindow);
+% ux
+_
+all
+_
+avg(i,j,:) = movmean(ux
+_
+all(i,j,:),avgTimePointWindow);
+% % uy
+_
+all
+_
+avg(i,j,:) = movmean(uy
+_
+all(i,j,:),avgTimePointWindow);
+% uz
+_
+all
+_
+avg(i,j,:) = movmean(uz
+_
+all(i,j,:),avgTimePointWindow);
+% uxux
+_
+all
+_
+avg(i,j,:) = movmean(uxux
+_
+all(i,j,:),avgTimePointWindow);
+% % uyuy
+_
+all
+_
+avg(i,j,:) =
+movmean(uyuy
+_
+all(i,j,:),avgTimePointWindow);
+% uzuz
+_
+all
+_
+avg(i,j,:) = movmean(uzuz
+_
+all(i,j,:),avgTimePointWindow);
+% uxx
+_
+all
+_
+avg(i,j,:) = movmean(uxx
+_
+all(i,j,:),avgTimePointWindow);
+% uxz
+_
+all
+_
+avg(i,j,:) = movmean(uxz
+_
+all(i,j,:),avgTimePointWindow);
+% % uyx
+_
+all
+_
+avg(i,j,:) = movmean(uyx
+_
+all(i,j,:),avgTimePointWindow);
+% % uyz
+_
+all
+_
+avg(i,j,:) = movmean(uyz
+_
+all(i,j,:),avgTimePointWindow);
+% uzx
+_
+all
+_
+avg(i,j,:) = movmean(uzx
+_
+all(i,j,:),avgTimePointWindow);
+% uzz
+_
+all
+_
+avg(i,j,:) = movmean(uzz
+_
+all(i,j,:),avgTimePointWindow);
+%
+% ux
+_
+uxx
+_
+all
+_
+avg(i,j,:) =
+movmean(ux
+_
+all(i,j,:).
+*uxx
+_
+all(i,j,:),avgTimePointWindow);
+% ux
+_
+uzz
+_
+all
+_
+avg(i,j,:) =
+movmean(ux
+_
+all(i,j,:).
+*uzz
+_
+all(i,j,:),avgTimePointWindow);
+% uz
+_
+uxz
+_
+all
+_
+avg(i,j,:) =
+movmean(uz
+_
+all(i,j,:).
+*uxz
+_
+all(i,j,:),avgTimePointWindow);
+% uz
+_
+uzz
+_
+all
+_
+avg(i,j,:) =
+movmean(uz
+_
+all(i,j,:).
+*uzz
+_
+all(i,j,:),avgTimePointWindow);
+% uz
+_
+uxx
+_
+all
+_
+avg(i,j,:) =
+movmean(uz
+_
+all(i,j,:).
+*uxx
+_
+all(i,j,:),avgTimePointWindow);
+% ux
+_
+uzx
+_
+all
+_
+avg(i,j,:) =
+movmean(ux
+_
+all(i,j,:).
+*uzx
+_
+all(i,j,:),avgTimePointWindow);
+pp
+_
+all
+_
+avg(i,j,:) = mean(pp
+_
+all(i,j,:),
+'all');
+ux
+_
+all
+_
+avg(i,j,:) = mean(ux
+_
+all(i,j,:),
+'all');
+% uy
+_
+all
+_
+avg(i,j,:) = mean(uy
+_
+all(i,j,:),
+'all');
+uz
+_
+all
+_
+avg(i,j,:) = mean(uz
+_
+all(i,j,:),
+'all');
+uxux
+_
+all
+_
+avg(i,j,:) = mean(uxux
+_
+all(i,j,:),
+'all');
+% uyuy
+_
+all
+_
+avg(i,j,:) = mean(uyuy
+_
+all(i,j,:),
+'all');
+uzuz
+_
+all
+_
+avg(i,j,:) = mean(uzuz
+_
+all(i,j,:),
+'all');
+uxx
+_
+all
+_
+avg(i,j,:) = mean(uxx
+_
+all(i,j,:),
+'all');
+uxz
+_
+all
+_
+avg(i,j,:) = mean(uxz
+_
+all(i,j,:),
+'all');
+% uyx
+_
+all
+_
+avg(i,j,:) = mean(uyx
+_
+all(i,j,:),
+'all');
+% uyz
+_
+all
+_
+avg(i,j,:) = mean(uyz
+_
+all(i,j,:),
+'all');
+uzx
+_
+all
+_
+avg(i,j,:) = mean(uzx
+_
+all(i,j,:),
+'all');
+uzz
+_
+all
+_
+avg(i,j,:) = mean(uzz
+_
+all(i,j,:),
+'all');
+ux
+_
+uxx
+_
+all
+_
+avg(i,j,:) = mean(ux
+_
+all(i,j,:).
+*uxx
+_
+all(i,j,:),
+'all');
+ux
+_
+uzz
+_
+all
+_
+avg(i,j,:) = mean(ux
+_
+all(i,j,:).
+*uzz
+_
+all(i,j,:),
+'all');
+uz
+_
+uxz
+_
+all
+_
+avg(i,j,:) = mean(uz
+_
+all(i,j,:).
+*uxz
+_
+all(i,j,:),
+'all');
+uz
+_
+uzz
+_
+all
+_
+avg(i,j,:) = mean(uz
+_
+all(i,j,:).
+*uzz
+_
+all(i,j,:),
+'all');
+uz
+_
+uxx
+_
+all
+_
+avg(i,j,:) = mean(uz
+_
+all(i,j,:).
+*uxx
+_
+all(i,j,:),
+'all');
+ux
+_
+uzx
+_
+all
+_
+avg(i,j,:) = mean(ux
+_
+all(i,j,:).
+*uzx
+_
+all(i,j,:),
+'all');
+end
+end
+% Some more gradients
+ppx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+ppz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uxuxx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uzuzx
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uxuxz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+uzuzz
+_
+all
+_
+avg = nan(Nx,Nz,NtAVG);
+for i=1:NtAVG
+[ppz
+_
+all
+_
+avg(:,:,i),ppx
+_
+all
+_
+avg(:,:,i)] =
+gradient(pp
+_
+all
+_
+avg(:,:,i),dz,dx);
+[uxuxz
+_
+all
+_
+avg(:,:,i),uxuxx
+_
+all
+_
+avg(:,:,i)] =
+gradient(uxux
+_
+all
+_
+avg(:,:,i),dz,dx);
+[uzuzz
+_
+all
+_
+avg(:,:,i),uzuzx
+_
+all
+_
+avg(:,:,i)] =
+gradient(uzuz
+_
+all
+_
+avg(:,:,i),dz,dx);
+end
+% Bulk ARF on tissue - equivalent to equation (9) of [Naftchi-Ardebili, K.,
+% Menz, M. D., Salahshoor, H., Popelka, G. R., Baccus, S. A., & Pauly, K.
+% B. (2024). Focal Volume, Acoustic Radiation Force, and Strain in
+% Two-Transducer Regimes. IEEE Transactions on Ultrasonics, Ferroelectrics,
+% and Frequency Control.]
+ARFx =
+-(1/(2*rho0*c0^2)*ppx
+_
+all
+_
+avg-1/2*rho0*(uxuxx
+_
+all
+_
+avg+uzuzx
+_
+all
+_
+avg)+...
+rho0*(2*ux
+_
+uxx
+_
+all
+_
+avg+ux
+_
+uzz
+_
+all
+_
+avg+uz
+_
+uxz
+_
+all
+_
+avg));
+ARFz =
+-(1/(2*rho0*c0^2)*ppz
+_
+all
+_
+avg-1/2*rho0*(uxuxz
+_
+all
+_
+avg+uzuzz
+_
+all
+_
+avg)+...
+rho0*(2*uz
+_
+uzz
+_
+all
+_
+avg+uz
+_
+uxx
+_
+all
+_
+avg+ux
+_
+uzx
+_
+all
+_
+avg));
+ARFzPart1 =
+-(1/(2*rho0*c0^2)*ppz
+_
+all
+_
+avg-1/2*rho0*(uxuxz
+_
+all
+_
+avg+uzuzz
+_
+all
+_
+avg));
+ARFzPart2 = -(rho0*(2*uz
+_
+uzz
+_
+all
+_
+avg+uz
+_
+uxx
+_
+all
+_
+avg+ux
+_
+uzx
+_
+all
+_
+avg));
+% Original ARFz
+% plot ARFx
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFx(:,:,ceil(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFx(3:end-2,3:end-2,1));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('ARFx');
+cb = colorbar;
+% clim([-20000 20000])
+title(cb,
+'(N/m^3)');
+% plot ARFz
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(:,:,floor(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(3:end-2,3:end-2,1));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('ARFz');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'(N/m^3)');
+% Additional quantities of interest:
+% Mean Eulerian excess pressure - eq.
+% (10) in [Prieur, F., & Sapozhnikov, O. A. (2017). Modeling of the
+% acoustic radiation force in elastography. The Journal of the Acoustical
+% Society of America, 142(2), 947-961.]
+p2E = 1/(2*rho0*c0^2)*pp
+_
+all
+_
+avg-1/2*rho0*(uxux
+_
+all
+_
+avg+uzuz
+_
+all
+_
+avg);
+% plot p2E
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p2E(:,:,floor(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p2E(:,:,1));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('Mean Eulerian pressure');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'(Pa)');
+figure;
+plot(1e3 * z
+_
+vec,ARFzPart1((Nx/2),:,1),
+'
+-b')
+hold on
+plot(1e3 * z
+_
+vec,ARFzPart2((Nx/2),:,1),
+'
+--r')
+hold on
+plot(1e3 * z
+_
+vec,ARFzPart2((Nx/2),:,1)+ARFzPart1((Nx/2),:,1),
+'k:')
+hold off
+% figure;
+% plot(1e3 * z
+_
+vec,ARFzPart1(Nx/2,:,1),
+'x-b')
+% hold on
+% plot(1e3 * z
+_
+vec,ARFzPart2(Nx/2,:,1),
+'o--r')
+% hold on
+% plot(1e3 * z
+_
+vec,ARFzPart2(Nx/2,:,1)+ARFzPart1(Nx/2,:,1),
+'k-
+')
+% hold off
+% ylabel('N/m^3')
+% xlabel('z-position (mm)')
+% legend('
+-dp2E/dz'
+,
+'
+-dReyStr/dz'
+,
+'ARFz')
+%% Compute ARFx, ARFz of cell and nucleus
+po = 1000;
+c00 = 1500;
+%pp of cell = 1080
+%pp of nucleus = 1430
+ko = 1/(po*c00^2);
+kp
+_
+cell = 1/(1080*1521^2);
+kp
+_
+nuc = 1/(1430*1509^2);
+f1
+_
+nuc = 1 - (kp
+_
+nuc/ko);
+f2
+_
+nuc = (2*((1430/po)-1))/(2*(1430/po)+1);
+a
+_
+nuc = 5e-6;
+nucleus
+_
+ARFx =
+-(4*pi/3)*(5e-6)^3*((f1
+_
+nuc*0.5*ko*uxuxx
+_
+all
+_
+avg)-(f2
+_
+nuc*0.75*po*uzuzx
+_
+all
+_
+a
+vg));
+nucleus
+_
+ARFz =
+-(4*pi/3)*(5e-6)^3*((f1
+_
+nuc*0.5*ko*uxuxz
+_
+all
+_
+avg)-(f2
+_
+nuc*0.75*po*uzuzz
+_
+all
+_
+a
+vg));
+f1
+_
+cell = 1-(kp
+_
+cell/ko);
+a
+_
+cell = 1e-5;
+f2
+_
+cell = (2*(1080/po)-1)/(2*(1080/po)+1);
+cell
+_
+ARFx =
+-(4*pi/3)*(1e-5)^3*((f1
+_
+cell*0.5*ko*uxuxx
+_
+all
+_
+avg)-(f2
+_
+cell*0.75*po*uzuzx
+_
+all
+_
+avg));
+cell
+_
+ARFz =
+-(4*pi/3)*(1e-5)^3*((f1
+_
+cell*0.5*ko*uxuxz
+_
+all
+_
+avg)-(f2
+_
+cell*0.75*po*uzuzz
+_
+all
+_
+avg));
+pamp = max(abs(p
+_
+all),[],
+'all');
+cell
+_
+ARFzTheory =
+4*pi*(1/3*f1
+_
+cell+1/2*f2
+_
+cell)*2*pi*source
+_
+freq/c00*(a
+_
+cell)^3*pamp^2/(4*po*c
+00^2);
+nucleus
+_
+ARFzTheory =
+4*pi*(1/3*f1
+_
+nuc+1/2*f2
+_
+nuc)*2*pi*source
+_
+freq/c00*(a
+_
+nuc)^3*pamp^2/(4*po*c00^
+2);
+% %% Plot new ARF
+%
+% % Original ARFz
+ARFzPart1 =
+-(1/(2*rho0*c0^2)*ppz
+_
+all
+_
+avg-1/2*rho0*(uxuxz
+_
+all
+_
+avg+uzuzz
+_
+all
+_
+avg));
+ARFzPart2 = -(rho0*(2*uz
+_
+uzz
+_
+all
+_
+avg+uz
+_
+uxx
+_
+all
+_
+avg+ux
+_
+uzx
+_
+all
+_
+avg));
+% Original Figure
+figure
+plot(1e3 * z
+_
+vec,ARFzPart1(Nx/2,:,1),
+'x-b')
+hold on
+plot(1e3 * z
+_
+vec,ARFzPart2(Nx/2,:,1),
+'o--r')
+hold on
+plot(1e3 * z
+_
+vec,ARFzPart2(Nx/2,:,1)+ARFzPart1(Nx/2,:,1),
+'k:')
+hold off
+title('Partitioned ARFz')
+ylabel('N')
+xlabel('z-position (mm)')
+legend('Part 1'
+,
+'Part 2'
+,
+'Summation')
+% % plot ARFx
+% figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFx(:,:,floor(NtAVG/2)));
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFx(:,:,1));
+% xlabel('z-position (mm)');
+% ylabel('x-position (mm)');
+% axis image;
+% title('ARFx');
+% cb = colorbar;
+% % clim([-20000 20000])
+% title(cb,
+'(N/m^3)');
+%
+% % % plot ARFz
+% figure;
+% % imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(:,:,floor(NtAVG/2)));
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(:,:,1));
+% xlabel('z-position (mm)');
+% ylabel('x-position (mm)');
+% axis image;
+% title('ARFz');
+% cb = colorbar;
+% % clim([-50000 50000])
+% title(cb,
+'(N/m^3)');
+%
+% % Additional quantities of interest:
+% % Mean Eulerian excess pressure - eq.
+% % (10) in [Prieur, F., & Sapozhnikov, O. A. (2017). Modeling of the
+% % acoustic radiation force in elastography. The Journal of the Acoustical
+% % Society of America, 142(2), 947-961.]
+p2E = 1/(2*rho0*c0^2)*pp
+_
+all
+_
+avg-1/2*rho0*(uxux
+_
+all
+_
+avg+uzuz
+_
+all
+_
+avg);
+% plot p
+_
+all figures
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(:,:,floor(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p
+_
+all(:,:,1));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('Pressure Distribution');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'Pa');
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(:,:,floor(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p
+_
+all(:,:,8));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('Max Pressure');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'Pa');
+figure;
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, pp
+_
+all
+_
+avg(:,:,1));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('Squared Pressure');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'Pa^2');
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, ARFz(:,:,floor(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p
+_
+all(:,:,25));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('Max Inverse Pressure');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'Pa');
+%p2E
+figure;
+% imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p2E(:,:,floor(NtAVG/2)));
+imagesc(1e3 * z
+_
+vec, 1e3 * x
+_
+vec, p2E(:,:,1));
+xlabel('z-position (mm)');
+ylabel('x-position (mm)');
+axis image;
+title('Mean Eulerian pressure');
+cb = colorbar;
+% clim([-50000 50000])
+title(cb,
+'(Pa)');
+% ARFz cell, nucleus
+figure;
+plot(1e3 * z
+_
+vec,nucleus
+_
+ARFz((Nx/2),:,1),
+'
+-b')
+hold on
+plot(1e3 * z
+_
+vec,cell
+_
+ARFz((Nx/2),:,1),
+'
+--r')
+% hold on
+% plot(1e3 * z
+_
+vec,cell
+_
+ARFz((Nx/2),:,1)+nucleus
+_
+ARFz((Nx/2),:,1),
+'k:')
+hold off
+yline(cell
+_
+ARFzTheory)
+yline(nucleus
+_
+ARFzTheory,
+'
+--b');
+%
+% %Cell Plot
+% figure;
+% % plot(1e3 * z
+_
+vec,nucleus
+_
+ARFz(Nx/2,:,1),
+'x-b')
+% % hold on
+% plot(1e3 * z
+_
+vec,cell
+_
+ARFz(Nx/2,:,1),
+'o--r')
+% hold on
+% % plot(1e3 * z
+_
+vec,cell
+_
+ARFz(Nx/2,:,1)+nucleus
+_
+ARFz(Nx/2,:,1),
+'k-
+')
+% % hold on
+% yline([nuc
+_
+ARFzTheory])
+% hold off
+% ylabel('N/m^3')
+% xlabel('z-position (mm)')
+% legend('nucleus ARFz'
+,
+'nucleus Theory')
+% %Nucleus Plot
+% figure;
+% plot(1e3 * z
+_
+vec,nucleus
+_
+ARFz(Nx/2,:,1),
+'x-b')
+% hold on
+% % plot(1e3 * x
+_
+vec,cell
+_
+ARFx(Nx/2,:,1),
+'o--r')
+% % hold on
+% % plot(1e3 * x
+_
+vec,cell
+_
+ARFx(Nx/2,:,1)+nucleus
+_
+ARFx(N/2,:,1),
+'k-
+')
+% yline([cell
+_
+ARFzTheory])
+% hold off
+% ylabel('N/m^3')
+% xlabel('x-position (mm)')
+% legend('cell ARFx'
+,
+'cell Theory')
+figure;
+plot(1e3 * z
+_
+vec,nucleus
+_
+ARFz(Nx/2,:,1),
+'x-b')
+hold on
+plot(1e3 * z
+_
+vec,cell
+_
+ARFz(Nx/2,:,1),
+'o--r')
+hold on
+yline(nucleus
+_
+ARFzTheory,
+'
+--b')
+yline(cell
+_
+ARFzTheory,
+'
+--r')
+hold off
+title('Nucleus & Cell Applied Theory')
+ylabel('N')
+xlabel('z-position (mm)')
+legend('nucleus ARFz'
+,
+'cell ARFz'
+,
+'nucleus Theory'
+,
+'cell Theory')
+end
