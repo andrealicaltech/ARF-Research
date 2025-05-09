@@ -1,0 +1,437 @@
+% Script to show how to setup a linear array transducer using the
+% kWaveArray class.
+%
+% NOTE: setting the position does not correctly rotate the angle of the
+% elements if an element angle is set. As a work around, set the element
+% angle in addRectElement to the same angle as the array rotation.
+%
+% author: Bradley Treeby
+% date: 1st November 2020
+% last update: 3rd November 2022
+%  
+% This function is part of the k-Wave Toolbox (http://www.k-wave.org)
+% Copyright (C) 2020-2022 Bradley Treeby
+
+% This file is part of k-Wave. k-Wave is free software: you can
+% redistribute it and/or modify it under the terms of the GNU Lesser
+% General Public License as published by the Free Software Foundation,
+% either version 3 of the License, or (at your option) any later version.
+% 
+% k-Wave is distributed in the hope that it will be useful, but WITHOUT ANY
+% WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+% FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+% more details. 
+% 
+% You should have received a copy of the GNU Lesser General Public License
+% along with k-Wave. If not, see <http://www.gnu.org/licenses/>. 
+
+clearvars;
+
+% =========================================================================
+% DEFINE LITERALS
+% =========================================================================
+    
+% select which k-Wave code to run
+%   1: MATLAB CPU code
+%   2: MATLAB GPU code
+%   3: C++ code
+%   4: CUDA code
+model           = 1;
+
+% medium parameters
+c0              = 1500;     % sound speed [m/s]
+rho0            = 1000;     % density [kg/m^3]
+
+% source parameters 1
+source_f0       = 1.5e6;      % source frequency [Hz]
+source_amp      = 0.1e6;      % source pressure [Pa]
+source_cycles   = 120;        % number of toneburst cycles
+source_focus    = 30e-3;    % focal length [m]
+element_num     = 24;       % number of elements
+element_width   = 0.245e-3;     % width [m]
+element_length  = 16e-3;    % elevation height [m]
+element_pitch   = 0.295e-3;     % pitch [m]
+% source parameters 2
+source2_f0       = 1.5e6;      % source frequency [Hz]
+source2_amp      = 0.1e6;      % source pressure [Pa]
+source2_cycles   = 120; %90        % number of toneburst cycles
+source2_focus    = 30e-3;    % focal length [m]
+element2_num     = 24;       % number of elements
+element2_width   = 0.245e-3;     % width [m]
+element2_length  = 16e-3;    % elevation height [m]
+element2_pitch   = 0.295e-3;     % pitch [m]
+
+% transducer position 1
+translation     = [0, 0, 2e-3];%[5e-3, 0, 8e-3];
+rotation        = [0, 0, 0];%[0, 20, 0];
+% transducer position 2
+translation2     = [0, 0, -2e-3];%[5e-3, 0, 8e-3];
+rotation2        = [0, 180, 0];%[0, 20, 0];
+
+% grid parameters
+grid_size_x     = 15e-3;    % [m]
+grid_size_y     = 18e-3;    % [m]
+grid_size_z     = 62e-3;    % [m]
+
+% computational parameters
+ppw             = 6;        % number of points per wavelength
+t_end           = 40e-6;    % total compute time [s] 0.06 m x s/ 1500m
+cfl             = 0.5;%0.5;      % CFL number
+
+% =========================================================================
+% RUN SIMULATION
+% =========================================================================
+
+% --------------------
+% GRID
+% --------------------
+
+% calculate the grid spacing based on the PPW and F0
+dx = c0 / (ppw * source_f0);   % [m]
+dy = dx;
+dz = dx;
+% compute the size of the grid
+Nx = roundEven(grid_size_x / dx);
+Ny = roundEven(grid_size_y / dx);
+Nz = roundEven(grid_size_z / dx);
+
+
+
+% create the computational grid
+kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
+
+% AP: add trim parameters
+
+% create the time array
+kgrid.makeTime(c0, cfl, t_end);
+
+% --------------------
+% SOURCE
+% --------------------
+
+% set indices for each element 1
+if rem(element_num, 2)
+    ids = (1:element_num) - ceil(element_num/2);
+else
+    ids = (1:element_num) - (element_num + 1)/2;
+end
+% set time delays for each element to focus at source_focus 1
+time_delays = -(sqrt((ids .* element_pitch).^2 + source_focus.^2) - source_focus) ./ c0;
+time_delays = time_delays - min(time_delays);
+
+% set indices for each element 2
+if rem(element2_num, 2)
+    ids2 = (1:element2_num) - ceil(element2_num/2);
+else
+    ids2 = (1:element2_num) - (element2_num + 1)/2;
+end
+% set time delays for each element to focus at source_focus 2
+time_delays2 = -(sqrt((ids2 .* element2_pitch).^2 + source2_focus.^2) - source2_focus) ./ c0;
+time_delays2 = time_delays2 - min(time_delays2);
+
+% create time varying source signals (one for each physical element) 1
+source_sig = source_amp .* toneBurst(1/kgrid.dt, source_f0, source_cycles, 'SignalOffset', round(time_delays / kgrid.dt),'Envelope',[2,2]);
+% create time varying source signals (one for each physical element) 2
+source2_sig = source2_amp .* toneBurst(1/kgrid.dt, source2_f0, source2_cycles, 'SignalOffset', round(time_delays2 / kgrid.dt),'Envelope',[2,2]);
+
+
+% create empty kWaveArray
+karray = kWaveArray('BLITolerance', 0.05, 'UpsamplingRate', 10);
+% add rectangular elements 1
+for ind = 1:element_num
+    % set element y position
+    x_pos = 0 - (element_num * element_pitch / 2 - element_pitch / 2) + (ind - 1) * element_pitch;
+    % add element (set rotation angle to match the global rotation angle)
+    karray.addRectElement([x_pos, 0, kgrid.z_vec(1)], element_width, element_length, rotation);
+end
+% move the array
+karray.setArrayPosition(translation, rotation)
+
+% create empty kWaveArray 2
+karray2 = kWaveArray('BLITolerance', 0.05, 'UpsamplingRate', 10);
+% add rectangular elements 2
+for ind2 = 1:element2_num
+    % set element y position
+    x_pos2 = 0 - (element2_num * element2_pitch / 2 - element2_pitch / 2) + (ind2 - 1) * element2_pitch;
+    % add element (set rotation angle to match the global rotation angle)
+    karray2.addRectElement([x_pos2, 0, kgrid.z_vec(1)], element2_width, element2_length, rotation);
+end
+% move the array 2
+karray2.setArrayPosition(translation2, rotation2)
+
+% assign binary mask
+source1.p_mask = karray.getArrayBinaryMask(kgrid);
+source2.p_mask = karray2.getArrayBinaryMask(kgrid);
+source.p_mask = source1.p_mask + source2.p_mask;
+
+% plot the off-grid source mask
+voxelPlot(single(source.p_mask));
+title('Off-grid source mask');
+
+% assign source signals
+source1.p = karray.getDistributedSourceSignal(kgrid, source_sig);
+source2.p = karray2.getDistributedSourceSignal(kgrid, source2_sig);
+source.p = [source1.p; source2.p];
+    
+% --------------------
+% MEDIUM
+% --------------------
+
+% assign medium properties
+medium.sound_speed = c0;
+medium.density = rho0;
+
+% % AP: adding a dish wall
+% wall_th = 1e-3; % in [m]
+% % create a mask of a barrier with a slit
+% wall_thickness_z = ceil(wall_th/dx);             % [grid points]
+% wall_width_x = floor((3*grid_size_x/4)/dx);       % [grid points]
+% wall_depth_y = floor((3*grid_size_y/4)/dx);       % [grid points]
+% wall_z_pos = floor(Nz/2 - Nz/5);                 % [grid points]
+% wall_mask = zeros(Nx,Ny,Nz);
+% wall_mask(1:Nx,1:Ny,wall_z_pos:wall_z_pos + wall_thickness_z) = 1;
+% % assign the slit to the properties of the propagation medium
+% medium.sound_speed = c0 * ones(Nx, Ny, Nz);
+% medium.density = rho0 * ones(Nx, Ny, Nz);
+% medium.sound_speed(wall_mask == 1) = 1.4 * c0;
+% medium.density(wall_mask == 1) = 1.1 * rho0;
+% 
+% % assign the reference sound speed to the background medium
+% medium.sound_speed_ref = c0;
+
+% --------------------
+% SENSOR
+% --------------------
+
+% set sensor mask to record central plane
+sensor.mask = zeros(Nx, Ny, Nz);
+% AP: Change in the following manner: Nx/2-trimX/2:Nx/2+trimX/2
+sensor.mask(:, Ny/2, :) = 1;
+
+% record the pressure
+sensor.record = {'p_max','p','u_non_staggered'};
+
+% --------------------
+% SIMULATION
+% --------------------
+
+% set input options
+input_args = {...
+    'PMLSize', 'auto', ...
+    'PMLInside', false, ...
+    'PlotPML', false, ...
+    'DisplayMask', 'off'}; % wall_mask
+
+% run code
+switch model
+    case 1
+        
+        % MATLAB CPU
+        sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, ...
+            input_args{:}, ...
+            'DataCast', 'single', ...
+            'PlotScale', [-1, 1] * source_amp);
+        
+    case 2
+        
+        % MATLAB GPU
+        sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, ...
+            input_args{:}, ...
+            'DataCast', 'gpuArray-single', ...
+            'PlotScale', [-1, 1] * source_amp);
+        
+    case 3
+        
+        % C++
+        sensor_data = kspaceFirstOrder3DC(kgrid, medium, source, sensor, input_args{:});
+        
+    case 4
+        
+        % C++/CUDA GPU
+        sensor_data = kspaceFirstOrder3DG(kgrid, medium, source, sensor, input_args{:});
+        
+end
+
+% reshape data
+% AP: Change Nx and Nz to trimX and trimZ
+p_max = reshape(sensor_data.p_max, Nx, Nz);
+
+% =========================================================================
+% VISUALISATION
+% =========================================================================
+
+%% plot the pressure field
+figure;
+%AP: Adjust the range of z_vec and x_vec
+imagesc(1e3 * kgrid.z_vec, 1e3 * kgrid.x_vec, 1e-6 * p_max);
+xlabel('z-position [mm]');
+ylabel('x-position [mm]');
+axis image;
+title('Pressure Field');
+cb = colorbar;
+title(cb, '[MPa]');
+
+%% Plotting pressure profile at center
+
+p_center = [];
+pp_center = [];
+
+p_all = [];
+pp_all = [];
+
+ux_all = [];
+uy_all = [];
+uz_all = [];
+uxux_all = [];
+uyuy_all = [];
+uzuz_all = [];
+
+uxx_all = [];
+uxz_all = [];
+uyx_all = [];
+uyz_all = [];
+uzx_all = [];
+uzz_all = [];
+
+
+for i=1:length(sensor_data.p(1,:))
+    p_current = reshape(sensor_data.p(:,i), Nx, Nz);
+    p_center = [p_center; p_current(Nx/2,:)];
+    pp_center = [pp_center; p_current(Nx/2,:).*p_current(Nx/2,:)];
+    
+    p_all(:,:,i) = p_current;
+    pp_all(:,:,i) = p_current.*p_current;
+
+
+    ux_current = reshape(sensor_data.ux_non_staggered(:,i), Nx, Nz);
+    uy_current = reshape(sensor_data.uy_non_staggered(:,i), Nx, Nz);
+    uz_current = reshape(sensor_data.uz_non_staggered(:,i), Nx, Nz);
+    ux_all(:,:,i) = ux_current;
+    uy_all(:,:,i) = uy_current;
+    uz_all(:,:,i) = uz_current;
+    uxux_all(:,:,i) = ux_current.*ux_current;
+    uyuy_all(:,:,i) = uy_current.*uy_current;
+    uzuz_all(:,:,i) = uz_current.*uz_current;
+
+    [uxx_all(:,:,i),uxz_all(:,:,i)] = gradient(ux_current,dx,dx);
+    [uyx_all(:,:,i),uyz_all(:,:,i)] = gradient(uy_current,dx,dx);
+    [uzx_all(:,:,i),uzz_all(:,:,i)] = gradient(uz_current,dx,dx);
+end
+
+%% Time averaging center
+ppAvg_center = [];
+for i=1:length(pp_center(1,:))
+    ppAvg_center = [ppAvg_center, movmean(pp_center(:,i),20)];
+end
+
+%% Time averaging - general
+avgTimePointWindow = floor((1/source_f0)/kgrid.dt);
+
+pp_all_avg = nan(Nx,Nz,kgrid.Nt);
+
+ux_all_avg = nan(Nx,Nz,kgrid.Nt);
+uy_all_avg = nan(Nx,Nz,kgrid.Nt);
+uz_all_avg = nan(Nx,Nz,kgrid.Nt);
+uxux_all_avg = nan(Nx,Nz,kgrid.Nt);
+uyuy_all_avg = nan(Nx,Nz,kgrid.Nt);
+uzuz_all_avg = nan(Nx,Nz,kgrid.Nt);
+
+uxx_all_avg = nan(Nx,Nz,kgrid.Nt);
+uxz_all_avg = nan(Nx,Nz,kgrid.Nt);
+uyx_all_avg = nan(Nx,Nz,kgrid.Nt);
+uyz_all_avg = nan(Nx,Nz,kgrid.Nt);
+uzx_all_avg = nan(Nx,Nz,kgrid.Nt);
+uzz_all_avg = nan(Nx,Nz,kgrid.Nt);
+
+for i=1:Nx
+    for j=1:Nz
+        pp_all_avg(i,j,:) = movmean(pp_all(i,j,:),avgTimePointWindow);
+        ux_all_avg(i,j,:) = movmean(ux_all(i,j,:),avgTimePointWindow);
+        uy_all_avg(i,j,:) = movmean(uy_all(i,j,:),avgTimePointWindow);
+        uz_all_avg(i,j,:) = movmean(uz_all(i,j,:),avgTimePointWindow);
+        uxux_all_avg(i,j,:) = movmean(uxux_all(i,j,:),avgTimePointWindow);
+        uyuy_all_avg(i,j,:) = movmean(uyuy_all(i,j,:),avgTimePointWindow);
+        uzuz_all_avg(i,j,:) = movmean(uzuz_all(i,j,:),avgTimePointWindow);
+        uxx_all_avg(i,j,:) = movmean(uxx_all(i,j,:),avgTimePointWindow);
+        uxz_all_avg(i,j,:) = movmean(uxz_all(i,j,:),avgTimePointWindow);
+        uyx_all_avg(i,j,:) = movmean(uyx_all(i,j,:),avgTimePointWindow);
+        uyz_all_avg(i,j,:) = movmean(uyz_all(i,j,:),avgTimePointWindow);
+        uzx_all_avg(i,j,:) = movmean(uzx_all(i,j,:),avgTimePointWindow);
+        uzz_all_avg(i,j,:) = movmean(uzz_all(i,j,:),avgTimePointWindow);
+    end
+end
+
+% Some more gradients
+ppx_all_avg = nan(Nx,Nz,kgrid.Nt);
+ppz_all_avg = nan(Nx,Nz,kgrid.Nt);
+uxuxx_all_avg = nan(Nx,Nz,kgrid.Nt);
+uzuzx_all_avg = nan(Nx,Nz,kgrid.Nt);
+uxuxz_all_avg = nan(Nx,Nz,kgrid.Nt);
+uzuzz_all_avg = nan(Nx,Nz,kgrid.Nt);
+
+for i=1:kgrid.Nt
+    [ppx_all_avg(:,:,i),ppz_all_avg(:,:,i)] = gradient(pp_all_avg(:,:,i),dx,dx);
+    [uxuxx_all_avg(:,:,i),uxuxz_all_avg(:,:,i)] = gradient(uxux_all_avg(:,:,i),dx,dx);
+    [uzuzx_all_avg(:,:,i),uzuzz_all_avg(:,:,i)] = gradient(uzuz_all_avg(:,:,i),dx,dx);
+end
+% % ARF on tissue
+% figure
+% plot(kgrid.kz_vec,ppAvg_center(1000,:), '.')
+% %
+% hold on
+% plot(kgrid.kz_vec,ppAvg_center(1200,:),'--')
+% %
+% hold on
+% plot(kgrid.kz_vec,ppAvg_center(1450,:),'-')
+% %
+% hold on
+% plot(kgrid.kz_vec,ppAvg_center(800,:),'-x')
+
+%
+figure
+plot(kgrid.t_array,ppAvg_center(:,35),'-x')
+
+%% plot the pressure field
+figure;
+imagesc(1e3 * kgrid.z_vec, 1e3 * kgrid.x_vec, 1e-12 * pp_all_avg(:,:,505));
+xlabel('z-position [mm]');
+ylabel('x-position [mm]');
+axis image;
+title('Pressure Field');
+cb = colorbar;
+title(cb, '[MPa]');
+%% Plotting one of the time-averaged fields
+% Prepare the new file.
+vidObj = VideoWriter('250kHz_250kHz_120us','MPEG-4');
+vidObj.FrameRate = 30;
+% open(vidObj);
+figure
+loops = kgrid.Nt;
+% M(loops) = struct('cdata',[],'colormap',[]);
+for i=1:loops
+   imagesc(1e3 * kgrid.z_vec, 1e3 * kgrid.x_vec, pp_all_avg(:,:,i)); % in the data for image/imagesc, the data is structured as col-row! That's why the axes are inverted, while the data is x-z!
+   xlabel('z-position [mm]');
+   ylabel('x-position [mm]');
+   axis image;
+   title('Absolute pressure Field');
+   cb = colorbar;
+%     clim([0 3])
+   title(cb, '[MPa]');
+   hold on
+   xline(0,'-k')
+   drawnow
+%     M(i) = getframe;
+%     currFrame = getframe(gcf);
+%     writeVideo(vidObj,currFrame);
+end
+% Close the file.
+% close(vidObj);
+
+%% Computing acoustic forces of interest
+medium.density_arf = 1000;
+medium.sound_speed_arf = 1500;
+planeOfAnalysis = "xz";
+dataShape = "needReshape";
+
+[ARFx,ARFz,p2E] = computeAcousticForces(source_f0,kgrid,medium,planeOfAnalysis,sensor_data,dataShape);
+% [ARFx,ARFz,p2E] = computeAcousticForces_subDomain(source_f0,kgrid,medium,planeOfAnalysis,sensor_data,dataShape);
